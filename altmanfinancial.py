@@ -1,5 +1,7 @@
 import streamlit as st
 import yfinance as yf
+import pandas as pd
+import matplotlib.pyplot as plt
 
 ############################################
 # Helper Functions for Altman Z‑Score
@@ -8,7 +10,7 @@ import yfinance as yf
 def get_bs_value(bs, col, keys):
     """
     Searches the balance sheet DataFrame for the first matching key.
-    Comparison is done in a case‑insensitive manner.
+    Comparison is done in a case‑insensitive way after stripping whitespace.
     Returns the value from the specified column if found; otherwise, None.
     """
     for key in keys:
@@ -20,7 +22,7 @@ def get_bs_value(bs, col, keys):
 def get_fs_value(fs, col, keys):
     """
     Searches the financials (income statement) DataFrame for the first matching key.
-    Comparison is done in a case‑insensitive manner.
+    Comparison is case‑insensitive.
     Returns the value from the specified column if found; otherwise, None.
     """
     for key in keys:
@@ -41,11 +43,11 @@ def compute_altman_z(ticker: str):
           (Sales / Total Assets)
     
     Essential data:
-      - Total Assets (looked up using "Total Assets")
-      - Total Liabilities (tries "Total Liab", "Total Liabilities", and "Total Liabilities Net Minority Interest")
-      - Market Value of Equity (computed from share price and shares outstanding)
+      - Total Assets (lookup using "Total Assets")
+      - Total Liabilities (lookup using "Total Liab", "Total Liabilities", or "Total Liabilities Net Minority Interest")
+      - Market Value of Equity (computed from share price * shares outstanding)
     
-    Returns a tuple: (z_score, classification) if successful; otherwise, (None, error_message).
+    Returns a tuple (z_score, classification) if successful; otherwise, (None, error_message).
     """
     t_obj = yf.Ticker(ticker)
     bs = t_obj.balance_sheet
@@ -58,7 +60,7 @@ def compute_altman_z(ticker: str):
         return None, f"Financial statement data not available for ticker {ticker}."
 
     try:
-        bs_col = bs.columns[0]  # most recent annual reporting period
+        bs_col = bs.columns[0]  # Most recent reporting period.
     except Exception:
         return None, "Could not determine the latest balance sheet period."
     try:
@@ -66,6 +68,7 @@ def compute_altman_z(ticker: str):
     except Exception:
         return None, "Could not determine the latest financial statement period."
 
+    # Retrieve balance sheet metrics.
     total_assets = get_bs_value(bs, bs_col, ["Total Assets"])
     total_liabilities = get_bs_value(bs, bs_col, ["Total Liab", "Total Liabilities", "Total Liabilities Net Minority Interest"])
     current_assets = get_bs_value(bs, bs_col, ["Total Current Assets", "Current Assets"])
@@ -73,9 +76,11 @@ def compute_altman_z(ticker: str):
     working_capital = current_assets - current_liabilities if (current_assets is not None and current_liabilities is not None) else None
     retained_earnings = get_bs_value(bs, bs_col, ["Retained Earnings"])
 
+    # Retrieve income statement metrics.
     ebit = get_fs_value(fs, fs_col, ["Operating Income", "EBIT"])
     sales = get_fs_value(fs, fs_col, ["Total Revenue", "Revenue", "Sales"])
 
+    # Compute Market Value of Equity.
     share_price = info.get('regularMarketPrice', None)
     shares_outstanding = info.get('sharesOutstanding', None)
     market_value_of_equity = share_price * shares_outstanding if (share_price is not None and shares_outstanding is not None) else None
@@ -86,6 +91,7 @@ def compute_altman_z(ticker: str):
                f"Market Value of Equity: {market_value_of_equity}")
         return None, msg
 
+    # Compute ratios (default missing non-essential values to 0.0).
     ratio1 = (working_capital / total_assets) if working_capital is not None else 0.0
     ratio2 = (retained_earnings / total_assets) if retained_earnings is not None else 0.0
     ratio3 = (ebit / total_assets) if ebit is not None else 0.0
@@ -104,82 +110,30 @@ def compute_altman_z(ticker: str):
     return z_score, classification
 
 ############################################
-# Dividend Dashboard Functions
+# Dividend Dashboard Function
 ############################################
 
 def display_dividend_dashboard(ticker: str):
     """
-    Retrieves dividend history and price history for the given ticker
-    and displays them.
+    Retrieves and displays the dividend dashboard for the given ticker.
+    Shows:
+      - Company overview
+      - Dividend history (last 10 entries) as a bar chart
+      - Price history (last 1 year) as a line chart
+      - Key financial metrics (Trailing EPS, Dividend Rate, Dividend Yield, Dividend Payout Ratio)
     """
     t_obj = yf.Ticker(ticker)
+    info = t_obj.info
+
+    st.subheader("Company Overview")
+    if 'longBusinessSummary' in info:
+        st.write(info['longBusinessSummary'])
+    else:
+        st.write("No overview available.")
+
+    st.subheader("Dividend History (Last 10 Entries)")
     dividends = t_obj.dividends
-    price_history = t_obj.history(period="1y")
-    
-    st.subheader(f"Dividend History for {ticker}")
-    if dividends is not None and not dividends.empty:
-        # Limit to last 10 entries for clarity.
-        data_to_plot = dividends.tail(10) if len(dividends) > 10 else dividends
-        st.bar_chart(data_to_plot)
+    if dividends.empty:
+        st.write("No dividend data available for this ticker.")
     else:
-        st.write("No dividend data available.")
-
-    st.subheader(f"Price History for {ticker} (Last 1 Year)")
-    if price_history is not None and not price_history.empty:
-        st.line_chart(price_history['Close'])
-    else:
-        st.write("No price data available.")
-
-
-############################################
-# Main App
-############################################
-
-st.title("Financial Dashboard")
-st.markdown("Welcome to your integrated financial dashboard. Select your analysis from the sidebar.")
-
-analysis_choice = st.sidebar.radio("Select Analysis", options=["Dividend Dashboard", "Altman Z‑Score"])
-
-if analysis_choice == "Dividend Dashboard":
-    st.header("Dividend Dashboard")
-    ticker_div = st.text_input("Enter ticker symbol (e.g., AAPL) for Dividend Dashboard", value="AAPL", key="ticker_div")
-    if st.button("Show Dividend Data", key="div_btn"):
-        if ticker_div:
-            with st.spinner("Fetching dividend and price data..."):
-                display_dividend_dashboard(ticker_div)
-        else:
-            st.error("Please enter a ticker symbol for the Dividend Dashboard.")
-
-elif analysis_choice == "Altman Z‑Score":
-    st.header("Altman Z‑Score Calculator")
-    st.markdown("""
-    **Altman Z‑Score Explanation:**
-
-    The Altman Z‑Score is a financial model used to predict the likelihood of bankruptcy. It combines five key ratios derived from a company’s financial statements. The formula is:
-
-    \[
-    Z = 1.2 \times \left(\frac{\text{Working Capital}}{\text{Total Assets}}\right) +
-        1.4 \times \left(\frac{\text{Retained Earnings}}{\text{Total Assets}}\right) +
-        3.3 \times \left(\frac{\text{EBIT}}{\text{Total Assets}}\right) +
-        0.6 \times \left(\frac{\text{Market Value of Equity}}{\text{Total Liabilities}}\right) +
-        \left(\frac{\text{Sales}}{\text{Total Assets}}\right)
-    \]
-
-    **Interpretation of the Z‑Score:**
-    - **Safe Zone (Z > 2.99):** The company is financially healthy with a low risk of bankruptcy.
-    - **Grey Zone (1.81 ≤ Z ≤ 2.99):** The company is in a cautionary zone and may need closer monitoring.
-    - **Distressed Zone (Z < 1.81):** The company faces a high risk of financial distress.
-
-    """)
-    ticker_altman = st.text_input("Enter ticker symbol (e.g., AAPL) for Altman Z‑Score", value="AAPL", key="ticker_altman")
-    if st.button("Calculate Altman Z‑Score", key="alt_btn"):
-        if ticker_altman:
-            with st.spinner("Calculating Altman Z‑Score..."):
-                z_score, classification = compute_altman_z(ticker_altman)
-                if z_score is not None:
-                    st.success(f"Altman Z‑Score: {z_score:.2f}")
-                    st.info(f"Classification: {classification}")
-                else:
-                    st.error(f"Calculation failed: {classification}")
-        else:
-            st.error("Please enter a ticker symbol for Altman Z‑Score.")
+        data_to_plot =
