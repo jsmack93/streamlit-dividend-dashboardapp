@@ -92,3 +92,163 @@ if ticker_symbol:
         st.write("**Dividend Payout Ratio:**", round(dividend_payout_ratio, 2))
     else:
         st.write("Dividend payout ratio could not be calculated due to missing data.")
+
+import yfinance as yf
+import pandas as pd
+import pprint
+
+def compute_altman_z(ticker: str):
+    """
+    Compute the Altman Z-Score for a given ticker using data from yfinance.
+    
+    The Altman Z-Score (for manufacturing companies) is:
+      Z = 1.2*(Working Capital/Total Assets) +
+          1.4*(Retained Earnings/Total Assets) +
+          3.3*(EBIT/Total Assets) +
+          0.6*(Market Value of Equity/Total Liabilities) +
+          (Sales/Total Assets)
+    
+    Parameters:
+        ticker (str): The ticker symbol of the company.
+    
+    Returns:
+        dict: A dictionary with the calculated ratios, Altman Z-Score, and classification,
+              or None if essential data is missing.
+    """
+    t = yf.Ticker(ticker)
+    
+    # Try to fetch the required data:
+    try:
+        bs = t.balance_sheet       # Balance sheet DataFrame
+        fs = t.financials          # Income statement DataFrame
+        info = t.info              # General company info
+    except Exception as e:
+        print(f"Error retrieving data for {ticker}: {e}")
+        return None
+
+    # Use the most recent reporting period from the balance sheet/income statement
+    try:
+        bs_col = bs.columns[0]
+    except Exception as e:
+        print("Balance sheet data not available.")
+        return None
+        
+    try:
+        fs_col = fs.columns[0]
+    except Exception as e:
+        print("Financial (income statement) data not available.")
+        return None
+
+    # Retrieve individual financial items (using try/except to catch missing keys)
+    try:
+        total_assets = bs.loc['Total Assets'][bs_col]
+    except Exception:
+        total_assets = None
+
+    try:
+        total_liabilities = bs.loc['Total Liab'][bs_col]
+    except Exception:
+        total_liabilities = None
+
+    try:
+        # Sometimes labeled as "Total Current Assets" or "Current Assets"
+        current_assets = bs.loc.get('Total Current Assets', bs.loc.get('Current Assets', None))
+        if current_assets is not None:
+            current_assets = current_assets[bs_col]
+    except Exception:
+        current_assets = None
+
+    try:
+        # Sometimes labeled as "Total Current Liabilities" or "Current Liabilities"
+        current_liabilities = bs.loc.get('Total Current Liabilities', bs.loc.get('Current Liabilities', None))
+        if current_liabilities is not None:
+            current_liabilities = current_liabilities[bs_col]
+    except Exception:
+        current_liabilities = None
+
+    # Compute Working Capital
+    if current_assets is not None and current_liabilities is not None:
+        working_capital = current_assets - current_liabilities
+    else:
+        working_capital = None
+
+    try:
+        retained_earnings = bs.loc['Retained Earnings'][bs_col]
+    except Exception:
+        retained_earnings = None
+
+    try:
+        # Use Operating Income as EBIT
+        ebit = fs.loc['Operating Income'][fs_col]
+    except Exception:
+        ebit = None
+
+    try:
+        sales = fs.loc['Total Revenue'][fs_col]
+    except Exception:
+        sales = None
+
+    try:
+        # Market Value of Equity = Share Price * Shares Outstanding
+        share_price = info.get('regularMarketPrice', None)
+        shares_outstanding = info.get('sharesOutstanding', None)
+        if share_price is not None and shares_outstanding is not None:
+            market_value_of_equity = share_price * shares_outstanding
+        else:
+            market_value_of_equity = None
+    except Exception:
+        market_value_of_equity = None
+
+    # Check that essential data is present
+    if total_assets is None or total_liabilities is None or market_value_of_equity is None:
+        print(f"Essential data not available for ticker {ticker}.")
+        return None
+
+    # Calculate the financial ratios used in the Z‑Score formula
+    ratio1 = (working_capital / total_assets) if working_capital is not None else 0.0
+    ratio2 = (retained_earnings / total_assets) if retained_earnings is not None else 0.0
+    ratio3 = (ebit / total_assets) if ebit is not None else 0.0
+    ratio4 = (market_value_of_equity / total_liabilities) if total_liabilities != 0 else 0.0
+    ratio5 = (sales / total_assets) if sales is not None else 0.0
+
+    # Calculate the Altman Z‑Score using the original coefficients for manufacturing firms:
+    z_score = 1.2 * ratio1 + 1.4 * ratio2 + 3.3 * ratio3 + 0.6 * ratio4 + ratio5
+
+    # Classify the company based on the Z‑Score:
+    # - Z > 2.99: "Safe" (low likelihood of bankruptcy)
+    # - 1.81 <= Z <= 2.99: "Grey Zone"
+    # - Z < 1.81: "Distressed" (high risk)
+    if z_score > 2.99:
+        classification = "Safe"
+    elif 1.81 <= z_score <= 2.99:
+        classification = "Grey Zone"
+    else:
+        classification = "Distressed"
+
+    # Prepare all the output data in a dictionary
+    result = {
+        "Ticker": ticker,
+        "Total Assets": total_assets,
+        "Total Liabilities": total_liabilities,
+        "Working Capital": working_capital,
+        "Retained Earnings": retained_earnings,
+        "EBIT": ebit,
+        "Sales": sales,
+        "Market Value of Equity": market_value_of_equity,
+        "Ratio1 (WC/TA)": ratio1,
+        "Ratio2 (Retained Earnings/TA)": ratio2,
+        "Ratio3 (EBIT/TA)": ratio3,
+        "Ratio4 (MVE/TL)": ratio4,
+        "Ratio5 (Sales/TA)": ratio5,
+        "Altman Z-Score": z_score,
+        "Classification": classification
+    }
+    return result
+
+
+if __name__ == "__main__":
+    ticker_input = input("Enter ticker symbol: ").strip()
+    altman_data = compute_altman_z(ticker_input)
+    if altman_data:
+        print("\n=== Altman Z-Score Analysis ===")
+        pprint.pprint(altman_data)
