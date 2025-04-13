@@ -136,4 +136,100 @@ def display_dividend_dashboard(ticker: str):
     if dividends.empty:
         st.write("No dividend data available for this ticker.")
     else:
-        data_to_plot =
+        data_to_plot = dividends if len(dividends) <= 10 else dividends.tail(10)
+        st.write(data_to_plot)
+        fig_div, ax_div = plt.subplots(figsize=(10, 4))
+        ax_div.bar(data_to_plot.index, data_to_plot)
+        ax_div.set_title("Dividend History (Last 10 Entries)")
+        ax_div.set_xlabel("Date")
+        ax_div.set_ylabel("Dividend ($)")
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        st.pyplot(fig_div)
+
+    st.subheader("Price History (Last 1 Year)")
+    price_history = t_obj.history(period="1y")
+    if price_history.empty:
+        st.write("No price data available for this ticker.")
+    else:
+        st.write(price_history[['Close']].head())
+        fig_price, ax_price = plt.subplots(figsize=(10, 4))
+        ax_price.plot(price_history.index, price_history['Close'], label="Closing Price")
+        ax_price.set_title("Price History (Last 1 Year)")
+        ax_price.set_xlabel("Date")
+        ax_price.set_ylabel("Price ($)")
+        ax_price.legend()
+        st.pyplot(fig_price)
+
+    st.subheader("Key Financial Metrics")
+    trailing_eps = info.get('trailingEps', None)
+    dividend_rate = info.get('dividendRate', None)
+    dividend_yield = info.get('dividendYield', None)
+    if trailing_eps and trailing_eps != 0 and dividend_rate:
+        dividend_payout_ratio = dividend_rate / trailing_eps
+    else:
+        dividend_payout_ratio = None
+
+    st.write("Trailing EPS:", trailing_eps if trailing_eps is not None else "N/A")
+    st.write("Dividend Rate:", dividend_rate if dividend_rate is not None else "N/A")
+    st.write("Dividend Yield:", dividend_yield if dividend_yield is not None else "N/A")
+    if dividend_payout_ratio is not None:
+        st.write("Dividend Payout Ratio:", round(dividend_payout_ratio, 2))
+    else:
+        st.write("Dividend payout ratio could not be calculated due to missing data.")
+
+############################################
+# Main App
+############################################
+
+def main():
+    st.title("Financial Dashboard")
+    st.markdown("Welcome to your integrated financial dashboard. Use the sidebar to select your analysis.")
+
+    analysis_choice = st.sidebar.radio("Select Analysis", options=["Dividend Dashboard", "Altman Z‑Score"])
+
+    if analysis_choice == "Dividend Dashboard":
+        st.header("Dividend Dashboard")
+        ticker_div = st.text_input("Enter ticker symbol for Dividend Dashboard (e.g., AAPL)", value="AAPL", key="ticker_div")
+        if st.button("Show Dividend Data", key="div_btn"):
+            if ticker_div:
+                with st.spinner("Fetching dividend and price data..."):
+                    display_dividend_dashboard(ticker_div)
+            else:
+                st.error("Please enter a ticker symbol for the Dividend Dashboard.")
+
+    elif analysis_choice == "Altman Z‑Score":
+        st.header("Altman Z‑Score Calculator")
+        st.markdown("""
+        **Altman Z‑Score Explanation:**
+
+        The Altman Z‑Score is a financial model used to predict the likelihood of bankruptcy. It combines five ratios derived from a company's financial statements:
+
+        \\[
+        Z = 1.2 \\times \\left(\\frac{\\text{Working Capital}}{\\text{Total Assets}}\\right) +
+            1.4 \\times \\left(\\frac{\\text{Retained Earnings}}{\\text{Total Assets}}\\right) +
+            3.3 \\times \\left(\\frac{\\text{EBIT}}{\\text{Total Assets}}\\right) +
+            0.6 \\times \\left(\\frac{\\text{Market Value of Equity}}{\\text{Total Liabilities}}\\right) +
+            \\left(\\frac{\\text{Sales}}{\\text{Total Assets}}\\right)
+        \\]
+
+        **Interpretation of the Z‑Score:**
+        - **Safe Zone (Z > 2.99):** The company is financially healthy.
+        - **Grey Zone (1.81 ≤ Z ≤ 2.99):** The company is in a cautionary zone.
+        - **Distressed Zone (Z < 1.81):** The company has a high risk of financial distress.
+        """)
+        ticker_altman = st.text_input("Enter ticker symbol for Altman Z‑Score (e.g., AAPL)", value="AAPL", key="ticker_altman")
+        if st.button("Calculate Altman Z‑Score", key="alt_btn"):
+            if ticker_altman:
+                with st.spinner("Calculating Altman Z‑Score..."):
+                    z_score, classification = compute_altman_z(ticker_altman)
+                    if z_score is not None:
+                        st.success(f"Altman Z‑Score: {z_score:.2f}")
+                        st.info(f"Classification: {classification}")
+                    else:
+                        st.error(f"Calculation failed: {classification}")
+            else:
+                st.error("Please enter a ticker symbol for Altman Z‑Score.")
+
+if __name__ == "__main__":
+    main()
