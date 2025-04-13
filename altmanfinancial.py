@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 def get_bs_value(bs, col, keys):
     """
     Searches the balance sheet DataFrame for the first matching key.
-    Comparison is done in a case‑insensitive way after stripping whitespace.
+    Comparison is done case‑insensitively after stripping whitespace.
     Returns the value from the specified column if found; otherwise, None.
     """
     for key in keys:
@@ -21,8 +21,8 @@ def get_bs_value(bs, col, keys):
 
 def get_fs_value(fs, col, keys):
     """
-    Searches the financials (income statement) DataFrame for the first matching key.
-    Comparison is case‑insensitive.
+    Searches the income statement DataFrame for the first matching key.
+    Comparison is done case‑insensitively.
     Returns the value from the specified column if found; otherwise, None.
     """
     for key in keys:
@@ -43,8 +43,8 @@ def compute_altman_z(ticker: str):
           (Sales / Total Assets)
     
     Essential data:
-      - Total Assets (lookup using "Total Assets")
-      - Total Liabilities (lookup using "Total Liab", "Total Liabilities", or "Total Liabilities Net Minority Interest")
+      - Total Assets (looked up by "Total Assets")
+      - Total Liabilities (looked up by "Total Liab", "Total Liabilities", or "Total Liabilities Net Minority Interest")
       - Market Value of Equity (computed from share price * shares outstanding)
     
     Returns a tuple (z_score, classification) if successful; otherwise, (None, error_message).
@@ -60,7 +60,7 @@ def compute_altman_z(ticker: str):
         return None, f"Financial statement data not available for ticker {ticker}."
 
     try:
-        bs_col = bs.columns[0]  # Most recent reporting period.
+        bs_col = bs.columns[0]  # Most recent period.
     except Exception:
         return None, "Could not determine the latest balance sheet period."
     try:
@@ -68,7 +68,7 @@ def compute_altman_z(ticker: str):
     except Exception:
         return None, "Could not determine the latest financial statement period."
 
-    # Retrieve balance sheet metrics.
+    # Retrieve metrics from the balance sheet.
     total_assets = get_bs_value(bs, bs_col, ["Total Assets"])
     total_liabilities = get_bs_value(bs, bs_col, ["Total Liab", "Total Liabilities", "Total Liabilities Net Minority Interest"])
     current_assets = get_bs_value(bs, bs_col, ["Total Current Assets", "Current Assets"])
@@ -76,7 +76,7 @@ def compute_altman_z(ticker: str):
     working_capital = current_assets - current_liabilities if (current_assets is not None and current_liabilities is not None) else None
     retained_earnings = get_bs_value(bs, bs_col, ["Retained Earnings"])
 
-    # Retrieve income statement metrics.
+    # Retrieve metrics from the income statement.
     ebit = get_fs_value(fs, fs_col, ["Operating Income", "EBIT"])
     sales = get_fs_value(fs, fs_col, ["Total Revenue", "Revenue", "Sales"])
 
@@ -91,7 +91,7 @@ def compute_altman_z(ticker: str):
                f"Market Value of Equity: {market_value_of_equity}")
         return None, msg
 
-    # Compute ratios (default missing non-essential values to 0.0).
+    # Compute ratios (default to 0.0 if a component is missing).
     ratio1 = (working_capital / total_assets) if working_capital is not None else 0.0
     ratio2 = (retained_earnings / total_assets) if retained_earnings is not None else 0.0
     ratio3 = (ebit / total_assets) if ebit is not None else 0.0
@@ -114,14 +114,6 @@ def compute_altman_z(ticker: str):
 ############################################
 
 def display_dividend_dashboard(ticker: str):
-    """
-    Retrieves and displays the dividend dashboard for the given ticker.
-    Shows:
-      - Company overview
-      - Dividend history (last 10 entries) as a bar chart
-      - Price history (last 1 year) as a line chart
-      - Key financial metrics (Trailing EPS, Dividend Rate, Dividend Yield, Dividend Payout Ratio)
-    """
     t_obj = yf.Ticker(ticker)
     info = t_obj.info
 
@@ -186,7 +178,11 @@ def main():
     st.title("Financial Dashboard")
     st.markdown("Welcome to your integrated financial dashboard. Use the sidebar to select your analysis.")
 
+    # Sidebar navigation for selecting the analysis page.
     analysis_choice = st.sidebar.radio("Select Analysis", options=["Dividend Dashboard", "Altman Z‑Score"])
+
+    # For debugging (you can remove or comment out this debug output later)
+    # st.write("Selected analysis:", analysis_choice)
 
     if analysis_choice == "Dividend Dashboard":
         st.header("Dividend Dashboard")
@@ -213,7 +209,7 @@ def main():
             \\left(\\frac{\\text{Sales}}{\\text{Total Assets}}\\right)
         \\]
 
-        **Interpretation of the Z‑Score:**
+        **Interpretation:**
         - **Safe Zone (Z > 2.99):** The company is financially healthy.
         - **Grey Zone (1.81 ≤ Z ≤ 2.99):** The company is in a cautionary zone.
         - **Distressed Zone (Z < 1.81):** The company has a high risk of financial distress.
