@@ -97,15 +97,13 @@ def compute_altman_z(ticker: str):
     fs_col = fs.columns[0]
 
     total_assets = get_bs_value(bs, bs_col, ["Total Assets"])
-    total_liabilities = get_bs_value(bs, bs_col, ["Total Liab", "Total Liabilities"])
+    total_liabilities = get_bs_value(bs, bs_col, ["Total Liab", "Total Liabilities", "Total Liabilities Net Minority Interest"])
     current_assets = get_bs_value(bs, bs_col, ["Total Current Assets", "Current Assets"])
     current_liabilities = get_bs_value(bs, bs_col, ["Total Current Liabilities", "Current Liabilities"])
     working_capital = current_assets - current_liabilities if (current_assets is not None and current_liabilities is not None) else None
     retained_earnings = get_bs_value(bs, bs_col, ["Retained Earnings"])
-
     ebit = get_fs_value(fs, fs_col, ["Operating Income", "EBIT"])
     sales = get_fs_value(fs, fs_col, ["Total Revenue", "Revenue", "Sales"])
-
     share_price = info.get('regularMarketPrice', None)
     shares_outstanding = info.get('sharesOutstanding', None)
     market_value_of_equity = share_price * shares_outstanding if (share_price is not None and shares_outstanding is not None) else None
@@ -131,7 +129,7 @@ def compute_altman_z(ticker: str):
     return z_score, classification
 
 ############################################
-# NEW: CODE EXPLANATION PAGES
+# EXPLANATION PAGES
 ############################################
 
 def explain_dividend_code():
@@ -140,35 +138,56 @@ def explain_dividend_code():
     st.code("def display_dividend_dashboard(ticker: str):")
     st.write("Defines a function that takes a ticker symbol and drives the entire dividend dashboard.")
     st.subheader("2. Fetching Data")
-    snippet = "t_obj = yf.Ticker(ticker)\ninfo = t_obj.info"  # noqa: E501
+    snippet = "t_obj = yf.Ticker(ticker)\ninfo = t_obj.info"
     st.code(snippet)
     st.write("Creates a yfinance Ticker object and retrieves company info.")
     st.subheader("3. Plot Dividends")
-    snippet = "ax_div.bar(data_to_plot.index, data_to_plot)"  # noqa: E501
+    snippet = "ax_div.bar(data_to_plot.index, data_to_plot)"
     st.code(snippet)
     st.write("Builds a bar chart of the last 10 dividend payments.")
     st.subheader("4. Calculate Payout Ratio")
-    snippet = "dividend_payout_ratio = dividend_rate / trailing_eps"  # noqa: E501
+    snippet = "dividend_payout_ratio = dividend_rate / trailing_eps"
     st.code(snippet)
     st.write("Computes the dividend payout ratio as dividends per share over earnings per share.")
 
 def explain_altman_code():
     st.header("Altman Z-Score Code Explanation")
-    st.subheader("1. Retrieving Financials")
+    st.subheader("1. Retrieving Financial Data")
     st.code("bs = t_obj.balance_sheet\nfs = t_obj.financials")
-    st.write("Loads the balance sheet and income statement into DataFrames.")
-    st.subheader("2. Extracting Key Metrics")
-    snippet = "total_assets = get_bs_value(bs, bs_col, [\"Total Assets\"])"  # noqa: E501
-    st.code(snippet)
-    st.write("Pulls total assets by matching the correct row name.")
-    st.subheader("3. Computing Ratios")
-    snippet = "ratio1 = working_capital / total_assets"  # noqa: E501
-    st.code(snippet)
-    st.write("Calculates the working capital to assets ratio for the first Altman component.")
-    st.subheader("4. Final Z-Score Formula")
-    snippet = "z_score = 1.2*ratio1 + 1.4*ratio2 + 3.3*ratio3 + 0.6*ratio4 + ratio5"  # noqa: E501
-    st.code(snippet)
-    st.write("Combines all five ratios into the final Z-Score measure.")
+    st.write("Loads balance sheet and income statement into DataFrames.")
+    st.subheader("2. Ratio 1: Working Capital / Total Assets")
+    st.code("ratio1 = (working_capital / total_assets) if working_capital is not None else 0.0")
+    st.write("Measures liquidity by comparing available capital to total assets.")
+    st.subheader("3. Ratio 2: Retained Earnings / Total Assets")
+    st.code("ratio2 = (retained_earnings / total_assets) if retained_earnings is not None else 0.0")
+    st.write("Shows cumulative profitability relative to asset base.")
+    st.subheader("4. Ratio 3: EBIT / Total Assets")
+    st.code("ratio3 = (ebit / total_assets) if ebit is not None else 0.0")
+    st.write("Assesses operating efficiency by earnings before interest and taxes.")
+    st.subheader("5. Ratio 4: Market Value of Equity / Total Liabilities")
+    st.code("ratio4 = (market_value_of_equity / total_liabilities) if total_liabilities != 0 else 0.0")
+    st.write("Compares market capitalization to liabilities to gauge solvency.")
+    st.subheader("6. Ratio 5: Sales / Total Assets")
+    st.code("ratio5 = (sales / total_assets) if sales is not None else 0.0")
+    st.write("Evaluates asset turnover by linking revenue to assets.")
+    st.subheader("7. Classification Logic")
+    classification_snip = (
+        "if z_score > 2.99:\n    classification = 'Safe Zone'\n"
+        "elif z_score >= 1.81:\n    classification = 'Grey Zone'\n"
+        "else:\n    classification = 'Distressed Zone'"
+    )
+    st.code(classification_snip)
+    st.write("Determines financial health category based on Z-Score thresholds.")
+    st.subheader("8. Handling Total Liabilities Field")
+    liabilities_snip = (
+        "total_liabilities = get_bs_value(bs, bs_col, ['Total Liab', 'Total Liabilities',"
+        " 'Total Liabilities Net Minority Interest'])"
+    )
+    st.code(liabilities_snip)
+    st.write(
+        "Includes 'Total Liabilities Net Minority Interest' because some filings label liabilities differently,"
+        " ensuring we capture the correct figure."
+    )
 
 ############################################
 # MAIN APP
@@ -176,20 +195,22 @@ def explain_altman_code():
 
 def main():
     st.title("Financial Dashboard")
-    # Insert the two new options after the existing ones on line ~80
     page = st.sidebar.radio(
         "Select Analysis",
         [
             "Dividend Dashboard",
-            "Altman Z‑Score",
-            "Explain Dividend Code",   # <-- new page option
-            "Explain Altman Code"      # <-- new page option
+            "Altman Z-Score",
+            "Explain Dividend Code",
+            "Explain Altman Code"
         ]
     )
 
     if page == "Dividend Dashboard":
-        # existing code, unchanged
-        ticker_div = st.text_input("Enter ticker symbol for Dividend Dashboard (e.g., AAPL)", value="AAPL", key="ticker_div")
+        ticker_div = st.text_input(
+            "Enter ticker symbol for Dividend Dashboard (e.g., AAPL)",
+            value="AAPL",
+            key="ticker_div"
+        )
         if st.button("Show Dividend Data", key="div_btn"):
             if ticker_div:
                 with st.spinner("Fetching dividend and price data..."):
@@ -197,26 +218,29 @@ def main():
             else:
                 st.error("Please enter a ticker symbol for the Dividend Dashboard.")
 
-    elif page == "Altman Z‑Score":
-        # existing code, unchanged
-        ticker_alt = st.text_input("Enter ticker symbol for Altman Z‑Score (e.g., AAPL)", value="AAPL", key="ticker_alt")
-        if st.button("Calculate Altman Z‑Score", key="alt_btn"):
+    elif page == "Altman Z-Score":
+        ticker_alt = st.text_input(
+            "Enter ticker symbol for Altman Z-Score (e.g., AAPL)",
+            value="AAPL",
+            key="ticker_alt"
+        )
+        if st.button("Calculate Altman Z-Score", key="alt_btn"):
             if ticker_alt:
-                with st.spinner("Calculating Altman Z‑Score..."):
+                with st.spinner("Calculating Altman Z-Score..."):
                     z_score, classification = compute_altman_z(ticker_alt)
                     if z_score is not None:
-                        st.success(f"Altman Z‑Score: {z_score:.2f}")
+                        st.success(f"Altman Z-Score: {z_score:.2f}")
                         st.info(f"Classification: {classification}")
                     else:
                         st.error(f"Calculation failed: {classification}")
             else:
-                st.error("Please enter a ticker symbol for Altman Z‑Score.")
+                st.error("Please enter a ticker symbol for Altman Z-Score.")
 
     elif page == "Explain Dividend Code":
-        explain_dividend_code()  # <-- calls your new explanatory page
+        explain_dividend_code()
 
-    else:  # page == "Explain Altman Code"
-        explain_altman_code()    # <-- calls your new explanatory page
+    else:
+        explain_altman_code()
 
 if __name__ == "__main__":
     main()
