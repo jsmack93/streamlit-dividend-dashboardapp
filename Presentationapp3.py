@@ -3,9 +3,9 @@ import yfinance as yf
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# ------------------------------------
-# DIVIDEND DASHBOARD FUNCTION
-# ------------------------------------
+############################################
+# DIVIDEND DASHBOARD FUNCTIONS
+############################################
 
 def display_dividend_dashboard(ticker: str):
     t_obj = yf.Ticker(ticker)
@@ -22,7 +22,7 @@ def display_dividend_dashboard(ticker: str):
     if dividends.empty:
         st.write("No dividend data available for this ticker.")
     else:
-        data_to_plot = dividends.tail(10)
+        data_to_plot = dividends.tail(10) if len(dividends) > 10 else dividends
         st.write(data_to_plot)
         fig_div, ax_div = plt.subplots(figsize=(10, 4))
         ax_div.bar(data_to_plot.index, data_to_plot)
@@ -48,25 +48,25 @@ def display_dividend_dashboard(ticker: str):
         st.pyplot(fig_price)
 
     st.subheader("Key Financial Metrics")
-    trailing_eps = info.get('trailingEps')
-    dividend_rate = info.get('dividendRate')
-    dividend_yield = info.get('dividendYield')
+    trailing_eps = info.get('trailingEps', None)
+    dividend_rate = info.get('dividendRate', None)
+    dividend_yield = info.get('dividendYield', None)
     if trailing_eps and trailing_eps != 0 and dividend_rate:
-        payout = dividend_rate / trailing_eps
+        dividend_payout_ratio = dividend_rate / trailing_eps
     else:
-        payout = None
+        dividend_payout_ratio = None
 
     st.write("Trailing EPS:", trailing_eps if trailing_eps is not None else "N/A")
     st.write("Dividend Rate:", dividend_rate if dividend_rate is not None else "N/A")
     st.write("Dividend Yield:", dividend_yield if dividend_yield is not None else "N/A")
-    st.write("Payout Ratio:", round(payout,2) if payout is not None else "N/A")
+    if dividend_payout_ratio is not None:
+        st.write("Dividend Payout Ratio:", round(dividend_payout_ratio, 2))
+    else:
+        st.write("Dividend payout ratio could not be calculated due to missing data.")
 
-# ------------------------------------
-# ALTMAN Z-SCORE FUNCTION
-# ------------------------------------
-
-import yfinance as yf
-import pprint
+############################################
+# ALTMAN Z-SCORE FUNCTIONS
+############################################
 
 def get_bs_value(bs, col, keys):
     for key in keys:
@@ -83,34 +83,35 @@ def get_fs_value(fs, col, keys):
     return None
 
 def compute_altman_z(ticker: str):
-    t = yf.Ticker(ticker)
-    bs = t.balance_sheet
-    fs = t.financials
-    info = t.info
+    t_obj = yf.Ticker(ticker)
+    bs = t_obj.balance_sheet
+    fs = t_obj.financials
+    info = t_obj.info
 
-    try:
-        bs_col = bs.columns[0]
-        fs_col = fs.columns[0]
-    except Exception:
-        print("Could not determine the latest financial data period.")
-        return None
+    if bs is None or bs.empty:
+        return None, f"Balance sheet data not available for ticker {ticker}."
+    if fs is None or fs.empty:
+        return None, f"Financial statement data not available for ticker {ticker}."
+
+    bs_col = bs.columns[0]
+    fs_col = fs.columns[0]
 
     total_assets = get_bs_value(bs, bs_col, ["Total Assets"])
-    total_liabilities = get_bs_value(bs, bs_col, ["Total Liab", "Total Liabilities", "Total Liabilities Net Minority Interest"])
+    total_liabilities = get_bs_value(bs, bs_col, ["Total Liab", "Total Liabilities"])
     current_assets = get_bs_value(bs, bs_col, ["Total Current Assets", "Current Assets"])
     current_liabilities = get_bs_value(bs, bs_col, ["Total Current Liabilities", "Current Liabilities"])
-    working_capital = current_assets - current_liabilities if current_assets is not None and current_liabilities is not None else None
+    working_capital = current_assets - current_liabilities if (current_assets is not None and current_liabilities is not None) else None
     retained_earnings = get_bs_value(bs, bs_col, ["Retained Earnings"])
+
     ebit = get_fs_value(fs, fs_col, ["Operating Income", "EBIT"])
     sales = get_fs_value(fs, fs_col, ["Total Revenue", "Revenue", "Sales"])
 
-    share_price = info.get("regularMarketPrice")
-    shares_outstanding = info.get("sharesOutstanding")
-    market_value_of_equity = share_price * shares_outstanding if share_price and shares_outstanding else None
+    share_price = info.get('regularMarketPrice', None)
+    shares_outstanding = info.get('sharesOutstanding', None)
+    market_value_of_equity = share_price * shares_outstanding if (share_price is not None and shares_outstanding is not None) else None
 
     if total_assets is None or total_liabilities is None or market_value_of_equity is None:
-        print(f"Essential data not available for ticker {ticker}")
-        return None
+        return None, f"Essential data missing for ticker {ticker}."
 
     ratio1 = (working_capital / total_assets) if working_capital is not None else 0.0
     ratio2 = (retained_earnings / total_assets) if retained_earnings is not None else 0.0
@@ -121,33 +122,101 @@ def compute_altman_z(ticker: str):
     z_score = 1.2 * ratio1 + 1.4 * ratio2 + 3.3 * ratio3 + 0.6 * ratio4 + ratio5
 
     if z_score > 2.99:
-        classification = "Safe"
+        classification = "Safe Zone"
     elif z_score >= 1.81:
         classification = "Grey Zone"
     else:
-        classification = "Distressed"
+        classification = "Distressed Zone"
 
-    return {
-        "Ticker": ticker,
-        "Total Assets": total_assets,
-        "Total Liabilities": total_liabilities,
-        "Working Capital": working_capital,
-        "Retained Earnings": retained_earnings,
-        "EBIT": ebit,
-        "Sales": sales,
-        "Market Value of Equity": market_value_of_equity,
-        "Ratio1 (WC/TA)": ratio1,
-        "Ratio2 (RE/TA)": ratio2,
-        "Ratio3 (EBIT/TA)": ratio3,
-        "Ratio4 (MVE/TL)": ratio4,
-        "Ratio5 (Sales/TA)": ratio5,
-        "Altman Z-Score": z_score,
-        "Classification": classification
-    }
+    return z_score, classification
+
+############################################
+# NEW: CODE EXPLANATION PAGES
+############################################
+
+def explain_dividend_code():
+    st.header("Dividend Dashboard Code Explanation")
+    st.subheader("1. Function Signature")
+    st.code("def display_dividend_dashboard(ticker: str):")
+    st.write("Defines a function that takes a ticker symbol and drives the entire dividend dashboard.")
+    st.subheader("2. Fetching Data")
+    snippet = "t_obj = yf.Ticker(ticker)\ninfo = t_obj.info"  # noqa: E501
+    st.code(snippet)
+    st.write("Creates a yfinance Ticker object and retrieves company info.")
+    st.subheader("3. Plot Dividends")
+    snippet = "ax_div.bar(data_to_plot.index, data_to_plot)"  # noqa: E501
+    st.code(snippet)
+    st.write("Builds a bar chart of the last 10 dividend payments.")
+    st.subheader("4. Calculate Payout Ratio")
+    snippet = "dividend_payout_ratio = dividend_rate / trailing_eps"  # noqa: E501
+    st.code(snippet)
+    st.write("Computes the dividend payout ratio as dividends per share over earnings per share.")
+
+def explain_altman_code():
+    st.header("Altman Z-Score Code Explanation")
+    st.subheader("1. Retrieving Financials")
+    st.code("bs = t_obj.balance_sheet\nfs = t_obj.financials")
+    st.write("Loads the balance sheet and income statement into DataFrames.")
+    st.subheader("2. Extracting Key Metrics")
+    snippet = "total_assets = get_bs_value(bs, bs_col, [\"Total Assets\"])"  # noqa: E501
+    st.code(snippet)
+    st.write("Pulls total assets by matching the correct row name.")
+    st.subheader("3. Computing Ratios")
+    snippet = "ratio1 = working_capital / total_assets"  # noqa: E501
+    st.code(snippet)
+    st.write("Calculates the working capital to assets ratio for the first Altman component.")
+    st.subheader("4. Final Z-Score Formula")
+    snippet = "z_score = 1.2*ratio1 + 1.4*ratio2 + 3.3*ratio3 + 0.6*ratio4 + ratio5"  # noqa: E501
+    st.code(snippet)
+    st.write("Combines all five ratios into the final Z-Score measure.")
+
+############################################
+# MAIN APP
+############################################
+
+def main():
+    st.title("Financial Dashboard")
+    # Insert the two new options after the existing ones on line ~80
+    page = st.sidebar.radio(
+        "Select Analysis",
+        [
+            "Dividend Dashboard",
+            "Altman Z‑Score",
+            "Explain Dividend Code",   # <-- new page option
+            "Explain Altman Code"      # <-- new page option
+        ]
+    )
+
+    if page == "Dividend Dashboard":
+        # existing code, unchanged
+        ticker_div = st.text_input("Enter ticker symbol for Dividend Dashboard (e.g., AAPL)", value="AAPL", key="ticker_div")
+        if st.button("Show Dividend Data", key="div_btn"):
+            if ticker_div:
+                with st.spinner("Fetching dividend and price data..."):
+                    display_dividend_dashboard(ticker_div)
+            else:
+                st.error("Please enter a ticker symbol for the Dividend Dashboard.")
+
+    elif page == "Altman Z‑Score":
+        # existing code, unchanged
+        ticker_alt = st.text_input("Enter ticker symbol for Altman Z‑Score (e.g., AAPL)", value="AAPL", key="ticker_alt")
+        if st.button("Calculate Altman Z‑Score", key="alt_btn"):
+            if ticker_alt:
+                with st.spinner("Calculating Altman Z‑Score..."):
+                    z_score, classification = compute_altman_z(ticker_alt)
+                    if z_score is not None:
+                        st.success(f"Altman Z‑Score: {z_score:.2f}")
+                        st.info(f"Classification: {classification}")
+                    else:
+                        st.error(f"Calculation failed: {classification}")
+            else:
+                st.error("Please enter a ticker symbol for Altman Z‑Score.")
+
+    elif page == "Explain Dividend Code":
+        explain_dividend_code()  # <-- calls your new explanatory page
+
+    else:  # page == "Explain Altman Code"
+        explain_altman_code()    # <-- calls your new explanatory page
 
 if __name__ == "__main__":
-    ticker_input = input("Enter ticker symbol: ").strip()
-    result = compute_altman_z(ticker_input)
-    if result:
-        print("\n=== Altman Z‑Score Analysis ===")
-        pprint.pprint(result)
+    main()
