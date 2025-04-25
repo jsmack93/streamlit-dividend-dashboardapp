@@ -26,7 +26,7 @@ def display_dividend_dashboard(ticker: str):
     if dividends.empty:
         st.write("No dividend data available for this ticker.")
     else:
-        data_to_plot = dividends.tail(10)
+        data_to_plot = dividends.tail(10) if len(dividends) > 10 else dividends
         st.write(data_to_plot)
         fig_div, ax_div = plt.subplots(figsize=(10, 4))
         ax_div.bar(data_to_plot.index, data_to_plot)
@@ -52,15 +52,21 @@ def display_dividend_dashboard(ticker: str):
         st.pyplot(fig_price)
 
     st.subheader("Key Financial Metrics")
-    eps = info.get('trailingEps')
-    rate = info.get('dividendRate')
-    yld = info.get('dividendYield')
-    payout = (rate / eps) if (eps and eps != 0 and rate) else None
+    trailing_eps = info.get('trailingEps', None)
+    dividend_rate = info.get('dividendRate', None)
+    dividend_yield = info.get('dividendYield', None)
+    if trailing_eps and trailing_eps != 0 and dividend_rate:
+        dividend_payout_ratio = dividend_rate / trailing_eps
+    else:
+        dividend_payout_ratio = None
 
-    st.write("Trailing EPS:", eps or "N/A")
-    st.write("Dividend Rate:", rate or "N/A")
-    st.write("Dividend Yield:", yld or "N/A")
-    st.write("Payout Ratio:", round(payout,2) if payout else "N/A")
+    st.write("Trailing EPS:", trailing_eps if trailing_eps is not None else "N/A")
+    st.write("Dividend Rate:", dividend_rate if dividend_rate is not None else "N/A")
+    st.write("Dividend Yield:", dividend_yield if dividend_yield is not None else "N/A")
+    if dividend_payout_ratio is not None:
+        st.write("Dividend Payout Ratio:", round(dividend_payout_ratio, 2))
+    else:
+        st.write("Dividend payout ratio could not be calculated due to missing data.")
 
 ############################################
 # ALTMAN Z-SCORE FUNCTIONS
@@ -87,35 +93,52 @@ def compute_altman_z(ticker: str):
     info = t_obj.info
 
     if bs is None or bs.empty:
-        return None, f"Balance sheet data not available for {ticker}."
+        return None, f"Balance sheet data not available for ticker {ticker}."
     if fs is None or fs.empty:
-        return None, f"Financial statement data not available for {ticker}."
+        return None, f"Financial statement data not available for ticker {ticker}."
 
-    bs_col, fs_col = bs.columns[0], fs.columns[0]
-    TA = get_bs_value(bs, bs_col, ["Total Assets"])
-    TL = get_bs_value(bs, bs_col, ["Total Liab","Total Liabilities","Total Liabilities Net Minority Interest"])
-    CA = get_bs_value(bs, bs_col, ["Total Current Assets","Current Assets"])
-    CL = get_bs_value(bs, bs_col, ["Total Current Liabilities","Current Liabilities"])
-    WC = (CA - CL) if (CA is not None and CL is not None) else None
-    RE = get_bs_value(bs, bs_col, ["Retained Earnings"])
-    EBIT = get_fs_value(fs, fs_col, ["Operating Income","EBIT"])
-    SALES = get_fs_value(fs, fs_col, ["Total Revenue","Revenue","Sales"])
-    price = info.get('regularMarketPrice')
-    shares = info.get('sharesOutstanding')
-    MVE = (price * shares) if (price and shares) else None
+    bs_col = bs.columns[0]
+    fs_col = fs.columns[0]
 
-    if not all([TA, TL, MVE]):
-        return None, "Missing essential data."
+    total_assets = get_bs_value(bs, bs_col, ["Total Assets"])
+    total_liabilities = get_bs_value(bs, bs_col, [
+        "Total Liab",
+        "Total Liabilities",
+        "Total Liabilities Net Minority Interest"
+    ])
+    current_assets = get_bs_value(bs, bs_col, ["Total Current Assets", "Current Assets"])
+    current_liabilities = get_bs_value(bs, bs_col, ["Total Current Liabilities", "Current Liabilities"])
+    working_capital = (current_assets - current_liabilities
+                       if (current_assets is not None and current_liabilities is not None)
+                       else None)
+    retained_earnings = get_bs_value(bs, bs_col, ["Retained Earnings"])
+    ebit = get_fs_value(fs, fs_col, ["Operating Income", "EBIT"])
+    sales = get_fs_value(fs, fs_col, ["Total Revenue", "Revenue", "Sales"])
+    share_price = info.get('regularMarketPrice', None)
+    shares_outstanding = info.get('sharesOutstanding', None)
+    market_value_of_equity = (share_price * shares_outstanding
+                              if (share_price is not None and shares_outstanding is not None)
+                              else None)
 
-    r1 = (WC/TA) if WC else 0.0
-    r2 = (RE/TA) if RE else 0.0
-    r3 = (EBIT/TA) if EBIT else 0.0
-    r4 = (MVE/TL) if TL else 0.0
-    r5 = (SALES/TA) if SALES else 0.0
+    if total_assets is None or total_liabilities is None or market_value_of_equity is None:
+        return None, f"Essential data missing for ticker {ticker}."
 
-    Z = 1.2*r1 + 1.4*r2 + 3.3*r3 + 0.6*r4 + r5
-    cls = "Safe Zone" if Z>2.99 else "Grey Zone" if Z>=1.81 else "Distressed Zone"
-    return Z, cls
+    ratio1 = (working_capital / total_assets) if working_capital is not None else 0.0
+    ratio2 = (retained_earnings / total_assets) if retained_earnings is not None else 0.0
+    ratio3 = (ebit / total_assets) if ebit is not None else 0.0
+    ratio4 = (market_value_of_equity / total_liabilities) if total_liabilities != 0 else 0.0
+    ratio5 = (sales / total_assets) if sales is not None else 0.0
+
+    z_score = 1.2 * ratio1 + 1.4 * ratio2 + 3.3 * ratio3 + 0.6 * ratio4 + ratio5
+
+    if z_score > 2.99:
+        classification = "Safe Zone"
+    elif z_score >= 1.81:
+        classification = "Grey Zone"
+    else:
+        classification = "Distressed Zone"
+
+    return z_score, classification
 
 ############################################
 # INVESTING ANALYSIS FUNCTIONS
@@ -124,8 +147,8 @@ def compute_altman_z(ticker: str):
 def get_sp500_tickers():
     url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
     resp = requests.get(url)
-    soup = BeautifulSoup(resp.text,'html.parser')
-    table = soup.find('table',{'id':'constituents'})
+    soup = BeautifulSoup(resp.text, 'html.parser')
+    table = soup.find('table', {'id': 'constituents'})
     df = pd.read_html(str(table))[0]
     return df['Symbol'].tolist()
 
@@ -139,18 +162,18 @@ def extract_features(tickers):
             info.get('regularMarketPrice', np.nan),
             info.get('beta', np.nan)
         ])
-    return pd.DataFrame(rows,columns=['Ticker','Dividend Yield','Expected Return','Stability'])
+    return pd.DataFrame(rows, columns=['Ticker', 'Dividend Yield', 'Expected Return', 'Stability'])
 
 def perform_kmeans_clustering(df, k):
     dfc = df.dropna()
-    X = dfc[['Dividend Yield','Expected Return','Stability']]
+    X = dfc[['Dividend Yield', 'Expected Return', 'Stability']]
     km = KMeans(n_clusters=k, random_state=42).fit(X)
     dfc['Cluster'] = km.labels_
     return dfc, km
 
 def recommend_stocks(df, budget):
-    top = df.sort_values('Dividend Yield',ascending=False).head(5)
-    alloc = budget/len(top)
+    top = df.sort_values('Dividend Yield', ascending=False).head(5)
+    alloc = budget / len(top)
     top['Allocation'] = alloc
     return top
 
@@ -159,18 +182,157 @@ def recommend_stocks(df, budget):
 ############################################
 
 def explain_backend():
-    st.header("Backend Code Explanation")
+    st.title("Backend Code Explanation")
+
+    st.markdown("## Imports & Setup")
+    st.code("""
+import streamlit as st
+import yfinance as yf
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+import requests
+from bs4 import BeautifulSoup
+from sklearn.cluster import KMeans
+""")
+    st.write("These libraries handle UI, data fetching, parsing, clustering, and plotting.")
+
     with st.expander("Dividend Dashboard"):
-        st.code("display_dividend_dashboard(ticker)")
-        st.write("Fetch summary, plot dividends & price, compute payout ratio.")
+        st.subheader("Function Definition")
+        st.code("def display_dividend_dashboard(ticker: str):")
+        st.write("Main function driving the dividend page.")
+        
+        st.subheader("Data Fetching")
+        st.code("""
+t_obj = yf.Ticker(ticker)
+info = t_obj.info
+""")
+        st.write("Creates a Ticker object and gets company metadata.")
+
+        st.subheader("Summary Display")
+        st.code("""
+if 'longBusinessSummary' in info:
+    st.write(info['longBusinessSummary'])
+else:
+    st.write("No overview available.")
+""")
+        st.write("Shows the company’s business summary.")
+
+        st.subheader("Plot Dividends")
+        st.code("""
+dividends = t_obj.dividends
+data_to_plot = dividends.tail(10)
+fig_div, ax_div = plt.subplots(figsize=(10,4))
+ax_div.bar(data_to_plot.index, data_to_plot)
+st.pyplot(fig_div)
+""")
+        st.write("Bar chart of last ten dividend payments.")
+
+        st.subheader("Calculate Payout Ratio")
+        st.code("""
+trailing_eps = info.get('trailingEps')
+dividend_rate = info.get('dividendRate')
+dividend_payout_ratio = dividend_rate / trailing_eps
+""")
+        st.write("Dividends per share ÷ earnings per share.")
+
     with st.expander("Altman Z-Score"):
-        st.code("compute_altman_z(ticker)")
-        st.write("Extract 5 ratios, combine into Z, classify into zones.")
+        st.subheader("Load Financial Statements")
+        st.code("""
+bs = t_obj.balance_sheet
+fs = t_obj.financials
+""")
+        st.write("Balance sheet & income statement DataFrames.")
+
+        st.subheader("Extract Metrics")
+        st.code("""
+total_assets = get_bs_value(bs, bs_col, ["Total Assets"])
+total_liabilities = get_bs_value(bs, bs_col, [
+    "Total Liab",
+    "Total Liabilities",
+    "Total Liabilities Net Minority Interest"
+])
+""")
+        st.write("Captures key asset & liability values, including alternate labels.")
+
+        st.subheader("Compute Ratios")
+        st.code("""
+ratio1 = working_capital / total_assets
+ratio2 = retained_earnings / total_assets
+ratio3 = ebit / total_assets
+ratio4 = market_value_of_equity / total_liabilities
+ratio5 = sales / total_assets
+""")
+        st.write("Five components of Altman's formula.")
+
+        st.subheader("Combine into Z-Score")
+        st.code("""
+z_score = 1.2*ratio1 + 1.4*ratio2 + 3.3*ratio3 + 0.6*ratio4 + ratio5
+""")
+        st.write("Weighted sum per Altman’s original model.")
+
+        st.subheader("Classification Logic")
+        st.code("""
+if z_score > 2.99:
+    classification = 'Safe Zone'
+elif z_score >= 1.81:
+    classification = 'Grey Zone'
+else:
+    classification = 'Distressed Zone'
+""")
+        st.write("Categorizes financial health based on thresholds.")
+        st.write("""
+**Ranges:**  
+- **Safe Zone:** Z > 2.99  
+- **Grey Zone:** 1.81 ≤ Z ≤ 2.99  
+- **Distressed Zone:** Z < 1.81  
+""")
+
     with st.expander("Investing Analysis"):
-        st.code("tickers = get_sp500_tickers()  # 500 points")
-        st.code("df = extract_features(tickers)    # yields Dividend/Price/Beta")
-        st.code("dfc, km = perform_kmeans_clustering(df, k)")
-        st.write("Clusters S&P 500 by those features, then recommends top dividend payers.")
+        st.subheader("Fetch S&P 500 Tickers")
+        st.code("""
+def get_sp500_tickers():
+    url = 'https://…'
+    resp = requests.get(url)
+    soup = BeautifulSoup(resp.text,'html.parser')
+    table = soup.find('table',{'id':'constituents'})
+    df = pd.read_html(str(table))[0]
+    return df['Symbol'].tolist()
+""")
+        st.write("Scrapes Wikipedia for the list of S&P 500 symbols.")
+
+        st.subheader("Feature Extraction")
+        st.code("""
+rows = []
+for t in tickers:
+    info = yf.Ticker(t).info
+    rows.append([
+        t,
+        info.get('dividendYield', np.nan),
+        info.get('regularMarketPrice', np.nan),
+        info.get('beta', np.nan)
+    ])
+df = pd.DataFrame(rows, columns=[…])
+""")
+        st.write("Builds DataFrame of key metrics for clustering.")
+
+        st.subheader("Elbow Method")
+        st.code("""
+inertias = []
+for i in range(1, max_k+1):
+    model = KMeans(n_clusters=i).fit(X)
+    inertias.append(model.inertia_)
+ax.plot(range(1, max_k+1), inertias, marker='o')
+""")
+        st.write("Identifies optimal cluster count.")
+
+        st.subheader("Cluster & Recommend")
+        st.code("""
+dfc, km = perform_kmeans_clustering(df, k)
+rec = recommend_stocks(dfc, budget)
+st.write(rec)
+""")
+        st.write("Performs final clustering and budget-based recommendations.")
 
 ############################################
 # STREAMLIT APP
@@ -179,60 +341,62 @@ def explain_backend():
 def main():
     st.title("Financial Dashboard")
 
-    page = st.sidebar.radio("Select Page",[
+    page = st.sidebar.radio("Select Page", [
         "Dividend Dashboard",
         "Altman Z-Score",
         "Investing Analysis",
         "Explain Backend"
     ])
 
-    if page=="Dividend Dashboard":
-        t = st.text_input("Ticker","AAPL")
+    if page == "Dividend Dashboard":
+        ticker = st.text_input("Ticker", "AAPL")
         if st.button("Show Dividend Data"):
-            display_dividend_dashboard(t)
+            display_dividend_dashboard(ticker)
 
-    elif page=="Altman Z-Score":
-        t = st.text_input("Ticker","AAPL",key="alt")
+    elif page == "Altman Z-Score":
+        ticker = st.text_input("Ticker", "AAPL", key="alt")
         if st.button("Calculate Z-Score"):
-            z,cls = compute_altman_z(t)
-            if z is not None:
-                st.success(f"Altman Z-Score: {z:.2f}")
-                st.info(f"Classification: {cls}")
+            result = compute_altman_z(ticker)
+            if result[0] is not None:
+                z_score, classification = result
+                st.success(f"Altman Z-Score: {z_score:.2f}")
+                st.info(f"Classification: {classification}")
+                st.markdown("**Classification Ranges:**")
+                st.markdown("- **Safe Zone:** Z > 2.99")
+                st.markdown("- **Grey Zone:** 1.81 ≤ Z ≤ 2.99")
+                st.markdown("- **Distressed Zone:** Z < 1.81")
             else:
-                st.error(cls)
+                st.error(result[1])
 
-    elif page=="Investing Analysis":
+    elif page == "Investing Analysis":
         st.header("Investing Analysis")
-        st.write("Clustering the full S&P 500 dataset:")
-        with st.spinner("Fetching & featurizing..."):
+        st.write("Clustering the full S&P 500 dataset…")
+        with st.spinner("Fetching & featurizing…"):
             tickers = get_sp500_tickers()
             df = extract_features(tickers)
-        if df.empty:
-            st.error("Failed to load features.")
-            return
+        st.write(f"Loaded {len(df)} tickers; {df.dropna().shape[0]} valid feature rows.")
 
-        st.write(f"Loaded {len(df)} tickers; {df.dropna().shape[0]} with complete features.")
         max_k = min(df.dropna().shape[0], 10)
-        k = st.slider("Number of clusters (k)",1,max_k,3)
-        budget = st.number_input("Investment budget ($)",1000.0)
+        k = st.slider("Number of clusters (k)", 1, max_k, 3)
+        budget = st.number_input("Investment budget ($)", 1000.0)
 
         if st.button("Run Analysis"):
-            dfc, _ = perform_kmeans_clustering(df,k)
-            # Elbow
-            inertias=[]
-            X = dfc[['Dividend Yield','Expected Return','Stability']]
-            for i in range(1,max_k+1):
-                inertias.append(KMeans(n_clusters=i,random_state=42).fit(X).inertia_)
-            fig,ax=plt.subplots()
-            ax.plot(range(1,max_k+1),inertias,marker='o')
+            dfc, _ = perform_kmeans_clustering(df, k)
+            # Elbow plot
+            inertias = []
+            X = dfc[['Dividend Yield', 'Expected Return', 'Stability']]
+            for i in range(1, max_k+1):
+                inertias.append(KMeans(n_clusters=i, random_state=42).fit(X).inertia_)
+            fig, ax = plt.subplots()
+            ax.plot(range(1, max_k+1), inertias, marker='o')
             ax.set_xlabel("k"); ax.set_ylabel("Inertia"); ax.set_title("Elbow Method")
             st.pyplot(fig)
 
-            rec = recommend_stocks(dfc,budget)
-            st.write("### Top Recommendations",rec)
+            rec = recommend_stocks(dfc, budget)
+            st.write("### Top Recommendations", rec)
 
     else:
         explain_backend()
 
-if __name__=="__main__":
+if __name__ == "__main__":
     main()
