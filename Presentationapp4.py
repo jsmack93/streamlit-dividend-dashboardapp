@@ -101,16 +101,28 @@ def compute_altman_z(ticker: str):
     fs_col = fs.columns[0]
 
     total_assets = get_bs_value(bs, bs_col, ["Total Assets"])
-    total_liabilities = get_bs_value(bs, bs_col, ["Total Liab", "Total Liabilities", "Total Liabilities Net Minority Interest"])
+    total_liabilities = get_bs_value(bs, bs_col, [
+        "Total Liab",
+        "Total Liabilities",
+        "Total Liabilities Net Minority Interest"
+    ])
     current_assets = get_bs_value(bs, bs_col, ["Total Current Assets", "Current Assets"])
     current_liabilities = get_bs_value(bs, bs_col, ["Total Current Liabilities", "Current Liabilities"])
-    working_capital = current_assets - current_liabilities if (current_assets is not None and current_liabilities is not None) else None
+    working_capital = (
+        current_assets - current_liabilities
+        if (current_assets is not None and current_liabilities is not None)
+        else None
+    )
     retained_earnings = get_bs_value(bs, bs_col, ["Retained Earnings"])
     ebit = get_fs_value(fs, fs_col, ["Operating Income", "EBIT"])
     sales = get_fs_value(fs, fs_col, ["Total Revenue", "Revenue", "Sales"])
     share_price = info.get('regularMarketPrice', None)
     shares_outstanding = info.get('sharesOutstanding', None)
-    market_value_of_equity = share_price * shares_outstanding if (share_price is not None and shares_outstanding is not None) else None
+    market_value_of_equity = (
+        share_price * shares_outstanding
+        if (share_price is not None and shares_outstanding is not None)
+        else None
+    )
 
     if total_assets is None or total_liabilities is None or market_value_of_equity is None:
         return None, f"Essential data missing for ticker {ticker}."
@@ -155,19 +167,6 @@ def extract_features(tickers):
         data.append([ticker, dividend_yield, expected_return, stability])
     return pd.DataFrame(data, columns=['Ticker', 'Dividend Yield', 'Expected Return', 'Stability'])
 
-def elbow_method(df):
-    df_clean = df.dropna()
-    X = df_clean[['Dividend Yield', 'Expected Return', 'Stability']]
-    inertia = []
-    for k in range(1, 11):
-        km = KMeans(n_clusters=k, random_state=42).fit(X)
-        inertia.append(km.inertia_)
-    fig, ax = plt.subplots()
-    ax.plot(range(1, 11), inertia, marker='o')
-    ax.set_xlabel("k")
-    ax.set_ylabel("Inertia")
-    st.pyplot(fig)
-
 def perform_kmeans_clustering(df, num_clusters=3):
     df_clean = df.dropna()
     X = df_clean[['Dividend Yield', 'Expected Return', 'Stability']]
@@ -206,18 +205,26 @@ def explain_backend():
         st.code("ratio4 = market_value_of_equity / total_liabilities")
         st.code("ratio5 = sales / total_assets")
         st.subheader("Classification Logic")
-        st.code("if z_score > 2.99:\n    classification = 'Safe Zone'\nelif z_score >= 1.81:\n    classification = 'Grey Zone'\nelse:\n    classification = 'Distressed Zone'")
+        st.code(
+            "if z_score > 2.99:\n"
+            "    classification = 'Safe Zone'\n"
+            "elif z_score >= 1.81:\n"
+            "    classification = 'Grey Zone'\n"
+            "else:\n"
+            "    classification = 'Distressed Zone'"
+        )
         st.write("Assigns zone based on Z-Score thresholds.")
 
     with st.expander("Investing Analysis"):
-        st.subheader("Fetching S&P 500 Tickers")
-        st.code("def get_sp500_tickers(): ... # scrapes Wikipedia for tickers")
-        st.subheader("Clustering (Elbow Method)")
-        st.code("inertia.append(KMeans(n_clusters=k).inertia_)")
-        st.write("Plots inertia to identify optimal clusters.")
+        st.subheader("Feature Extraction")
+        st.code("df = extract_features(tickers)")
+        st.write("Pulls dividend, price, and beta for each ticker.")
+        st.subheader("Clustering")
+        st.code("dfc, km = perform_kmeans_clustering(df, k)")
+        st.write("Runs KMeans on the feature set with your chosen k.")
         st.subheader("Recommendations")
-        st.code("rec = df.sort_values('Dividend Yield', ascending=False).head(5)")
-        st.write("Picks top dividend payers within budget.")
+        st.code("rec = recommend_stocks(dfc, budget)")
+        st.write("Selects top dividend payers given your budget.")
 
 ############################################
 # STREAMLIT APP
@@ -249,16 +256,41 @@ def main():
                 st.error(cls)
 
     elif page == "Investing Analysis":
-        if st.button("Fetch Tickers"):
-            tickers = get_sp500_tickers()
+        st.header("Investing Analysis")
+
+        # 1) Let the user enter any tickers
+        tickers_str = st.text_input("Enter tickers (comma-separated)", "AAPL, MSFT, GOOG")
+
+        # 2) Choose number of clusters
+        k = st.slider("Number of clusters (k)", 1, 10, 3)
+
+        # 3) Enter investment budget
+        budget = st.number_input("Investment budget ($)", 1000.0)
+
+        # 4) Run everything in one shot
+        if st.button("Run Analysis"):
+            tickers = [t.strip().upper() for t in tickers_str.split(",") if t.strip()]
             df = extract_features(tickers)
-            st.write(df.head())
-            k = st.slider("Clusters (k)", 1, 10, 3)
-            elbow_method(df)
+            st.write("### Feature Table", df)
+
+            # Elbow plot
+            inertia = []
+            X = df.dropna()[['Dividend Yield','Expected Return','Stability']]
+            max_k = min(len(tickers), 10)
+            for i in range(1, max_k+1):
+                model = KMeans(n_clusters=i, random_state=42).fit(X)
+                inertia.append(model.inertia_)
+            fig, ax = plt.subplots()
+            ax.plot(range(1, max_k+1), inertia, marker='o')
+            ax.set_xlabel("k")
+            ax.set_ylabel("Inertia")
+            ax.set_title("Elbow Method")
+            st.pyplot(fig)
+
+            # Clustering & recommendation
             dfc, _ = perform_kmeans_clustering(df, k)
-            budget = st.number_input("Budget ($)", 1000.0)
             rec = recommend_stocks(dfc, budget)
-            st.write(rec)
+            st.write("### Top Recommendations", rec)
 
     else:
         explain_backend()
