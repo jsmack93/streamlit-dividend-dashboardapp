@@ -300,23 +300,29 @@ else:
 tickers = get_sp500_tickers()
 df = extract_features(tickers)
 """)
-        st.write("Scrapes S&P 500 list and pulls Dividend Yield, Price, Stability for each.")
+        st.write("Scrapes the S&P 500 list and pulls Dividend Yield, Price, and Stability for each ticker.")
 
         st.subheader("Clustering Overview")
         st.write("""
-We use KMeans with **n_clusters=3** to segment stocks into three groups:
-- **Cluster 0 (Income Focus):** Stocks with higher dividend yields and moderate stability.
-- **Cluster 1 (Growth Focus):** Stocks with higher expected returns and higher volatility.
-- **Cluster 2 (Stability Focus):** Stocks with lower volatility and moderate returns.
+We apply **KMeans** with **n_clusters=3** to segment our universe into three distinct groups:
 
-This allows us to recommend stocks based on different investment styles.
+- **Cluster 0 (Income Focus):**  
+  High dividend yields with moderate stability.
+
+- **Cluster 1 (Growth Focus):**  
+  Elevated expected returns (price + earnings growth), but higher volatility.
+
+- **Cluster 2 (Stability Focus):**  
+  Lower volatility and stable returns, with moderate yields.
+
+This replaces any elbow-method step: we fix three clusters to correspond to these three investment styles.
 """)
 
         st.subheader("Recommendation Logic")
         st.code("""
 selected = recommend_stocks(clustered, budget, model, preferences, min_price, max_price)
 """)
-        st.write("Applies price & preference filters, then allocates budget across top picks.")
+        st.write("Filters by price & user preferences, then allocates your budget evenly across the top picks in the chosen cluster.")
 
 ############################################
 # STREAMLIT APP
