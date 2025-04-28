@@ -302,11 +302,14 @@ df = extract_features(tickers)
 """)
         st.write("Scrapes S&P 500 list and pulls Dividend Yield, Price, Stability for each.")
 
-        st.subheader("Clustering Logic")
+        st.subheader("Clustering Overview")
         st.write("""
-1. **Clean Data**: Drop missing rows and filter outliers by Z-score.  
-2. **Scale Features**: Standardize each feature.  
-3. **KMeans**: Fit 3 clusters and assign stock labels.
+We use KMeans with **n_clusters=3** to segment stocks into three groups:
+- **Cluster 0 (Income Focus):** Stocks with higher dividend yields and moderate stability.
+- **Cluster 1 (Growth Focus):** Stocks with higher expected returns and higher volatility.
+- **Cluster 2 (Stability Focus):** Stocks with lower volatility and moderate returns.
+
+This allows us to recommend stocks based on different investment styles.
 """)
 
         st.subheader("Recommendation Logic")
