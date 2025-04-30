@@ -4,3 +4,9 @@ pandas
 matplotlib
 scikit-learn
 lxml
+numpy
+matplotlib
+scipy
+beautifulsoup4
+plotly
+umap-learn
