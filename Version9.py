@@ -562,7 +562,7 @@ def main():
                 st.error(f"Error: {classification}")
 
     elif page == "Investing Analysis":
-        investing_analysis() (already written)
+        investing_analysis()
         pass
 
     elif page == "Sector Competitor Explorer":
